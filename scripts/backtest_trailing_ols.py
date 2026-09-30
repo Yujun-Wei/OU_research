@@ -18,7 +18,8 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from src.book import MAX_CAPITAL, SIDES, arrays, print_metrics, simulate
 from src.ols_fit import LOOKBACK_SESSIONS, REFRESH_MINUTES, attach_ols, trailing_schedule
-from src.static_hedge import fit_hedge, resample_last
+from src.rolling_hedge import HEDGE_LOOKBACK, fit_rolling_hedge
+from src.static_hedge import TRAIN_FRAC, fit_hedge, resample_last, session_cutoff
 
 MERGED_PATH = REPO_ROOT / "data" / "merged" / "511090_TL_20250701_20251230.parquet"
 SPREADS = (("static", "x_static"), ("rolling", "x_rolling"))
@@ -26,18 +27,22 @@ SPREADS = (("static", "x_static"), ("rolling", "x_rolling"))
 
 def main() -> None:
     panel = pl.read_parquet(MERGED_PATH)
-    train_end = panel.filter(pl.col("in_sample"))["trade_time"].dt.date().max()
     bars = resample_last(panel, "1m")
+    train_end = session_cutoff(bars, TRAIN_FRAC)
     hedge = fit_hedge(bars, train_end, "1min")
+    coefs = fit_rolling_hedge(bars, HEDGE_LOOKBACK)
+    marked = panel.with_columns(pl.col("trade_time").dt.date().alias("session")).join(
+        coefs.select("session", "alpha_rolling", "beta_rolling"), on="session", how="left"
+    )
     static_gap = float(
-        (panel["etf_last"] - hedge.beta * panel["tl_last"] - hedge.alpha - panel["x_static"]).abs().max()
+        (marked["etf_last"] - hedge.beta * marked["tl_last"] - hedge.alpha - marked["x_static"]).abs().max()
     )
     rolling_gap = float(
         (
-            panel["etf_last"]
-            - panel["beta_rolling"] * panel["tl_last"]
-            - panel["alpha_rolling"]
-            - panel["x_rolling"]
+            marked["etf_last"]
+            - marked["beta_rolling"] * marked["tl_last"]
+            - marked["alpha_rolling"]
+            - marked["x_rolling"]
         )
         .abs()
         .max()
@@ -47,7 +52,7 @@ def main() -> None:
 
     betas: dict[str, float | str] = {"static": hedge.beta, "rolling": "beta_rolling"}
     rows: list[dict] = []
-    oos = panel.filter(~pl.col("in_sample"))
+    oos = marked.filter(pl.col("trade_time").dt.date() > train_end)
     print(
         f"Out of sample {oos['trade_time'].min()} .. {oos['trade_time'].max()} "
         f"({oos['trade_time'].dt.date().n_unique()} sessions, train through {train_end})"

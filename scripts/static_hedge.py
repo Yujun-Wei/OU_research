@@ -44,13 +44,14 @@ def main() -> None:
     print(f"beta 1min {fits[0].beta:.6f}  5min {fits[1].beta:.6f}  difference {fits[0].beta - fits[1].beta:.6f}")
 
     fit = fits[0]
-    merged = attach_static_hedge(panel, fit.alpha, fit.beta, train_end)
+    merged = attach_static_hedge(panel, fit.alpha, fit.beta)
     write_panel(merged, MERGED_PATH)
     print(
-        f"Wrote x_static and in_sample to {MERGED_PATH} "
+        f"Wrote x_static to {MERGED_PATH} "
         f"({merged.height} rows, alpha {fit.alpha:.6f}, beta {fit.beta:.6f})"
     )
-    print(pl.DataFrame([fit_ols(merged.filter(pl.col("in_sample")), "x_static")]))
+    train = merged.filter(pl.col("trade_time").dt.date() <= train_end)
+    print(pl.DataFrame([fit_ols(train, "x_static")]))
 
 
 if __name__ == "__main__":

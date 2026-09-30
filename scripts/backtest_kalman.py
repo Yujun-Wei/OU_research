@@ -46,7 +46,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from src.book import SIDES, Z_ENTER, Z_EXIT, print_metrics, simulate
 from src.kalman import A_MAX, A_MIN, fit_ar1_ols, kalman_filter, minute_bars
 from src.ols_fit import fit_ols
-from src.static_hedge import fit_hedge, resample_last
+from src.static_hedge import TRAIN_FRAC, fit_hedge, resample_last, session_cutoff
 
 MERGED_PATH = REPO_ROOT / "data" / "merged" / "511090_TL_20250701_20251230.parquet"
 SPREAD = "x_static"
@@ -405,9 +405,9 @@ def _trial_row(trial: optuna.trial.FrozenTrial) -> dict:
 def main() -> None:
     _check_bands()
     panel = pl.read_parquet(MERGED_PATH)
-    train = panel.filter(pl.col("in_sample"))
-    train_end = train["trade_time"].dt.date().max()
     bars = resample_last(panel, "1m")
+    train_end = session_cutoff(bars, TRAIN_FRAC)
+    train = panel.filter(pl.col("trade_time").dt.date() <= train_end)
     hedge = fit_hedge(bars, train_end, "1min")
     print(
         f"Train {train['trade_time'].min()} .. {train['trade_time'].max()} "
@@ -548,7 +548,8 @@ def main() -> None:
 
     full_minute = minute_bars(panel, SPREAD)
     oos_path = kalman_filter(full_minute, SPREAD, ols, float(winner["qa"]), float(winner["qb"]))
-    oos_ticks = _tick_arrays(panel.filter(~pl.col("in_sample")), hedge.beta)
+    oos = panel.filter(pl.col("trade_time").dt.date() > train_end)
+    oos_ticks = _tick_arrays(oos, hedge.beta)
     oos_idx = _asof_index(oos_path.frame["trade_time"].to_numpy(), oos_ticks["times"])
     oos_half = LN2 / oos_path.frame["theta_per_min"].to_numpy()
     oos_diffusion = oos_path.frame["sigma"].to_numpy()
@@ -562,7 +563,7 @@ def main() -> None:
     oos_sigma = oos_path.frame["sigma_eq"].to_numpy()
     print(
         f"Out of sample, same Q and thresholds, in-sample anchors, filter carried forward "
-        f"({panel.filter(~pl.col('in_sample'))['trade_time'].dt.date().n_unique()} sessions). "
+        f"({oos['trade_time'].dt.date().n_unique()} sessions). "
         f"Not used to choose the candidate."
     )
     print(

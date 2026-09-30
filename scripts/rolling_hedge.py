@@ -17,7 +17,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from src.ols_fit import fit_ols
 from src.rolling_hedge import HEDGE_LOOKBACK, attach_rolling_hedge, fit_rolling_hedge
-from src.static_hedge import resample_last, write_panel
+from src.static_hedge import TRAIN_FRAC, resample_last, session_cutoff, write_panel
 
 MERGED_PATH = REPO_ROOT / "data" / "merged" / "511090_TL_20250701_20251230.parquet"
 QUARTER_END = date(2025, 9, 30)
@@ -25,7 +25,8 @@ QUARTER_END = date(2025, 9, 30)
 
 def main() -> None:
     panel = pl.read_parquet(MERGED_PATH)
-    bars = resample_last(panel, "1m").with_columns(pl.col("trade_time").dt.date().alias("session"))
+    bars = resample_last(panel, "1m")
+    train_end = session_cutoff(bars, TRAIN_FRAC)
     coefs = fit_rolling_hedge(bars, HEDGE_LOOKBACK)
     quarter = coefs.filter(pl.col("session") <= QUARTER_END)
     print(
@@ -36,8 +37,9 @@ def main() -> None:
 
     merged = attach_rolling_hedge(panel, coefs)
     write_panel(merged, MERGED_PATH)
-    print(f"Wrote alpha_rolling, beta_rolling, and x_rolling to {MERGED_PATH} ({merged.height} rows)")
-    print(pl.DataFrame([fit_ols(merged.filter(pl.col("in_sample")), "x_rolling")]))
+    print(f"Wrote x_rolling to {MERGED_PATH} ({merged.height} rows)")
+    train = merged.filter(pl.col("trade_time").dt.date() <= train_end)
+    print(pl.DataFrame([fit_ols(train, "x_rolling")]))
 
 
 if __name__ == "__main__":

@@ -73,7 +73,7 @@ X = P_{\mathrm{ETF}} - \alpha - \beta P_{\mathrm{TL}}.
 \end{equation}
 $\beta$ is the number of TL points held against one point of the ETF. The AR(1) is fit to this residual, so $\alpha$ and $\beta$ are chosen first. Until they are, $z$ is undefined. The OU estimators in the rest of the note all run on a residual the hedge has already produced, and the comparison below puts one and the same OU estimator on two choices of that hedge.
 
-The panel is ETF 511090 and the TL future main continuous contract (splicing already done), 125 shared sessions from 1 July through 30 December 2025. Both feeds are cut to the hours they both trade, 09:30--11:30 and 13:00--15:00. TL, which ticks faster, is joined to the ETF clock by a backward as-of, so every row sits on the ETF's three-second grid. The training window is the first 62 sessions, 1 July through 24 September. The test period is the remaining 63 sessions, 25 September through 30 December.
+The panel is ETF 511090 and the TL future main continuous contract (splicing already done), 125 shared sessions from 1 July through 30 December 2025. From the 1 December ex-date, the ETF last in the panel is the traded last plus the cash dividend of 1.50, and the traded print is kept beside it. Both feeds are cut to the hours they both trade, 09:30--11:30 and 13:00--15:00. TL, which ticks faster, is joined to the ETF clock by a backward as-of, so every row sits on the ETF's three-second grid. The training window is the first 62 sessions, 1 July through 24 September. The test period is the remaining 63 sessions, 25 September through 30 December.
 
 \subsection{Static and rolling hedges}
 
@@ -81,11 +81,20 @@ Both hedges are fit on lasts downsampled to 1-minute intervals. The static OLS f
 \[
 \hat\beta = 1.0557, \qquad \hat\alpha = -2.5923.
 \]
+Figure~\ref{fig:static-spread} plots that spread across the whole sample.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=\textwidth]{figures/stage1_static_spread.pdf}
+\caption{Static spread, one-minute lasts, 1 July through 30 December 2025. The shaded band is the training window.}
+\label{fig:static-spread}
+\end{figure}
+
 The rolling OLS fit refits $\alpha$ and $\beta$ every session on the previous 20 sessions of 1-minute lasts. Over the first three months that beta runs from 0.795 to 1.143.
 
 On the training window the rolling residual reverts faster than the static residual, with a half-life of 200 minutes against 304. The static figure is one OLS fit of the AR(1) on that residual, 14{,}756 pairs: $a = 0.99772$, $\mu = -0.027$, $\sigma = 0.0147$, and $\sigma_{\mathrm{eq}} = 0.218$.
 
-Both hedges were then traded with the same trailing-OLS OU estimator of Section~\ref{sec:trailing}. The rolling symmetrical book returns 0.371\% with a Sharpe ratio of 3.57; the static symmetrical book returns 0.997\% with a Sharpe ratio of 6.44. So it appears that the rolling hedge overadapts to the recent window, eating away the trading edge. The baseline in Table~\ref{tab:hedge} is the static fit, and the hedge stays there for the rest of the note.
+Both hedges were then traded with the same trailing-OLS OU estimator of Section~\ref{sec:trailing}. The rolling symmetrical book returns 0.315\% with a Sharpe ratio of 4.31; the static symmetrical book returns 0.827\% with a Sharpe ratio of 8.57. So it appears that the rolling hedge overadapts to the recent window, eating away the trading edge. The baseline in Table~\ref{tab:hedge} is the static fit, and the hedge stays there for the rest of the note.
 
 \begin{table}[ht]
 \centering
@@ -95,12 +104,12 @@ Both hedges were then traded with the same trailing-OLS OU estimator of Section~
 \toprule
 Hedge & Sides & Return & Ann. & Sharpe & Max DD & Trades \\
 \midrule
-Static & short & 0.685\% & 2.769\% & 4.62 & $-0.086\%$ & 21 \\
-Static & long & 0.226\% & 0.907\% & 3.35 & $-0.268\%$ & 16 \\
-Static & symmetrical & 0.997\% & 4.047\% & 6.44 & $-0.086\%$ & 36 \\
-Rolling & short & 0.070\% & 0.279\% & 1.42 & $-0.126\%$ & 10 \\
-Rolling & long & 0.301\% & 1.212\% & 3.17 & $-0.138\%$ & 12 \\
-Rolling & symmetrical & 0.371\% & 1.493\% & 3.57 & $-0.138\%$ & 22 \\
+Static & short & 0.505\% & 2.036\% & 5.81 & $-0.065\%$ & 23 \\
+Static & long & 0.321\% & 1.292\% & 5.93 & $-0.056\%$ & 17 \\
+Static & symmetrical & 0.827\% & 3.347\% & 8.57 & $-0.067\%$ & 40 \\
+Rolling & short & 0.155\% & 0.622\% & 2.87 & $-0.105\%$ & 12 \\
+Rolling & long & 0.208\% & 0.836\% & 3.72 & $-0.132\%$ & 13 \\
+Rolling & symmetrical & 0.315\% & 1.267\% & 4.31 & $-0.156\%$ & 24 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -109,7 +118,7 @@ Rolling & symmetrical & 0.371\% & 1.493\% & 3.57 & $-0.138\%$ & 22 \\
 \section{Trailing OLS}
 \label{sec:trailing}
 
-Through the test, $\mu$, $\sigma$, and $\theta$ are re-estimated every 180 completed one-minute bars. The window is the trailing five sessions, 1{,}200 one-minute bars, and the regression is the session-safe AR(1) of Section~\ref{sec:ou} (no overnight or over-lunch $\Delta t$). The new parameters apply from one minute after the last bar in the window. A window whose AR(1) coefficient falls outside $(0,1)$ keeps the previous fit: 3 of 85 windows on the static spread. The entry band is fixed at 2 and the exit band at 0.5.
+Through the test, $\mu$, $\sigma$, and $\theta$ are re-estimated every 180 completed one-minute bars. The window is the trailing five sessions, 1{,}200 one-minute bars, and the regression is the session-safe AR(1) of Section~\ref{sec:ou} (no overnight or over-lunch $\Delta t$). The new parameters apply from one minute after the last bar in the window. A window whose AR(1) coefficient falls outside $(0,1)$ keeps the previous fit. All 85 windows on the static spread stay inside $(0,1)$. The entry band is fixed at 2 and the exit band at 0.5.
 
 \section{Kalman filter}
 
@@ -228,7 +237,7 @@ The chosen $\log_{10} q_a = -5.10$ lies near the top of $[-10, -5]$, so $a$ is g
 
 \section{Out of sample}
 
-The Kalman symmetrical book is ahead of the trailing book, 1.806\% and a Sharpe ratio of 12.03 against 0.997\% and 6.44, on 436 round trips against 36.
+The Kalman symmetrical book is ahead of the trailing book, 1.868\% and a Sharpe ratio of 10.50 against 0.827\% and 8.57, on 227 round trips against 40.
 
 \begin{table}[ht]
 \centering
@@ -238,29 +247,29 @@ The Kalman symmetrical book is ahead of the trailing book, 1.806\% and a Sharpe 
 \toprule
 Estimator & Sides & Return & Ann. & Sharpe & Max DD & Trades \\
 \midrule
-Trailing OLS & short & 0.685\% & 2.769\% & 4.62 & $-0.086\%$ & 21 \\
-Trailing OLS & long & 0.226\% & 0.907\% & 3.35 & $-0.268\%$ & 16 \\
-Trailing OLS & symmetrical & 0.997\% & 4.047\% & 6.44 & $-0.086\%$ & 36 \\
-Kalman & short & 0.997\% & 4.046\% & 8.74 & $-0.094\%$ & 244 \\
-Kalman & long & 0.970\% & 3.936\% & 9.84 & $-0.083\%$ & 197 \\
-Kalman & symmetrical & 1.806\% & 7.422\% & 12.03 & $-0.093\%$ & 436 \\
+Trailing OLS & short & 0.505\% & 2.036\% & 5.81 & $-0.065\%$ & 23 \\
+Trailing OLS & long & 0.321\% & 1.292\% & 5.93 & $-0.056\%$ & 17 \\
+Trailing OLS & symmetrical & 0.827\% & 3.347\% & 8.57 & $-0.067\%$ & 40 \\
+Kalman & short & 0.983\% & 3.991\% & 7.38 & $-0.120\%$ & 126 \\
+Kalman & long & 1.076\% & 4.376\% & 10.49 & $-0.047\%$ & 105 \\
+Kalman & symmetrical & 1.868\% & 7.684\% & 10.50 & $-0.123\%$ & 227 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Figure~\ref{fig:spread} plots the static spread and the two $z$-scores. Figure~\ref{fig:position} plots the symmetrical positions. Both figures are one-minute lasts. The spread's level shifts down at the start of December. The trailing $z$-score follows that shift on the 180-minute clock; the Kalman $z$-score, and its entry band, move every minute. The position plot is the consequence: the trailing book holds for hours or days, and the Kalman book is in and out within the session. Positive lots are a short spread.
+Figure~\ref{fig:spread} plots the static spread and the two $z$-scores. Figure~\ref{fig:position} plots the symmetrical positions. Both figures are one-minute lasts. The spread drifts up through December. The trailing $z$-score follows that drift on the 180-minute clock; the Kalman $z$-score, and its entry band, move every minute. The position plot is the consequence: the trailing book holds for hours or days, and the Kalman book is in and out within the session. Positive lots are a short spread.
 
 \begin{figure}[ht]
 \centering
-\includegraphics[width=\textwidth]{figures/spread_z.pdf}
-\caption{Out-of-sample static spread and $z$-scores. In the trailing panel the dashed lines are the fixed bands at $\pm 2$ and $\pm 0.5$. In the Kalman panel the dashed lines are the dynamic entry band and the dotted lines are the exit band. The vertical scales omit the open on 1 December, when the trailing $z$-score prints $-17.9$ and the Kalman $z$-score prints $-71.2$. The Kalman entry band reaches 38.5 on that open and is clipped at the frame.}
+\includegraphics[width=\textwidth]{figures/stage1_oos_spread_z.pdf}
+\caption{Out-of-sample static spread and $z$-scores. In the trailing panel the dashed lines are the fixed bands at $\pm 2$ and $\pm 0.5$. In the Kalman panel the dashed lines are the dynamic entry band and the dotted lines are the exit band. The frame follows the body of each series. The trailing $z$-score reaches $-7.2$ on 4 December and the Kalman $z$-score reaches $12.4$; both are clipped.}
 \label{fig:spread}
 \end{figure}
 
 \begin{figure}[ht]
 \centering
-\includegraphics[width=\textwidth]{figures/position.pdf}
-\caption{Signed TL lots of the symmetrical books. Positive lots are short the spread. The size cap is 8 lots; the trailing book reaches 3 and the Kalman book reaches 4.}
+\includegraphics[width=\textwidth]{figures/stage1_oos_positions.pdf}
+\caption{Signed TL lots of the symmetrical books. Positive lots are short the spread. The size cap is 8 lots; the trailing book reaches 4 and the Kalman book reaches 4.}
 \label{fig:position}
 \end{figure}
 

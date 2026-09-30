@@ -4,6 +4,12 @@ ETF snapshots are about 3 seconds; TL snapshots are about 0.5 seconds. The merge
 panel uses the ETF timestamp. Each row takes the latest TL last at or before that
 timestamp, within a short tolerance, and only inside the continuous session both
 markets share: 09:30-11:30 and 13:00-15:00.
+
+`etf_last` is the traded last with the cash dividend added back from the ex-date
+on, so a position marked on it does not book the distribution as a price change.
+`etf_last_raw` keeps the traded print. The cash amount is 1.50 per share. The
+ex-date is the session whose `pre_close` sits more than half a point away from
+the previous session's last print.
 """
 
 import argparse
@@ -23,6 +29,9 @@ START = date(2025, 7, 1)
 END = date(2025, 12, 30)
 TOLERANCE = "3s"
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S%.f"
+DIVIDEND = 1.50
+# Ordinary pre_close-versus-prior-last gaps stay under 0.05.
+GAP_FLAG = 0.50
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,6 +61,26 @@ def _in_window(column: str, start: date, end: date) -> pl.Expr:
     return pl.col(column).dt.date().is_between(start, end, closed="both")
 
 
+def _ex_date(quotes: pl.DataFrame) -> date | None:
+    """The session where `pre_close` jumps away from the previous last print."""
+    sessions = (
+        quotes.group_by(pl.col("trade_time").dt.date().alias("session"), maintain_order=True)
+        .agg(pl.col("pre_close").first(), pl.col("last").last())
+        .sort("session")
+        .with_columns((pl.col("pre_close") - pl.col("last").shift(1)).alias("gap"))
+    )
+    flagged = sessions.filter(pl.col("gap").abs() > GAP_FLAG)
+    if flagged.is_empty():
+        return None
+    if flagged.height != 1:
+        LOGGER.error("Expected one ETF ex-date, found %s", flagged.height)
+        sys.exit(1)
+    found = flagged["session"][0]
+    if isinstance(found, date):
+        return found
+    return date.fromisoformat(str(found))
+
+
 def load_etf(etf_dir: Path, start: date, end: date) -> pl.DataFrame:
     paths = sorted(etf_dir.glob("*.csv"))
     if not paths:
@@ -59,21 +88,31 @@ def load_etf(etf_dir: Path, start: date, end: date) -> pl.DataFrame:
         sys.exit(2)
 
     LOGGER.info("Scanning %s ETF files from %s", len(paths), etf_dir)
-    return (
+    quotes = (
         pl.scan_csv(
             [str(path) for path in paths],
-            schema_overrides={"trade_time": pl.String, "last": pl.Float64},
+            schema_overrides={"trade_time": pl.String, "pre_close": pl.Float64, "last": pl.Float64},
         )
-        .select("trade_time", "last")
+        .select("trade_time", "pre_close", "last")
         .with_columns(_parse_time())
         .filter(_in_window("trade_time", start, end))
         .filter(in_overlap_session())
         .filter(pl.col("last") > 0)
-        .select(pl.col("trade_time"), pl.col("last").alias("etf_last"))
         .unique(subset=["trade_time"], keep="last")
         .sort("trade_time")
         .collect()
     )
+    ex_date = _ex_date(quotes)
+    if ex_date is None:
+        LOGGER.info("No ETF ex-date in this window; etf_last is the traded last")
+        adjusted = pl.col("last")
+    else:
+        LOGGER.info("ETF dividend %.2f added to last from %s", DIVIDEND, ex_date)
+        adjusted = pl.when(pl.col("trade_time").dt.date() >= ex_date).then(pl.col("last") + DIVIDEND).otherwise(pl.col("last"))
+    return quotes.with_columns(
+        adjusted.alias("etf_last"),
+        pl.col("last").alias("etf_last_raw"),
+    ).select("trade_time", "etf_last", "etf_last_raw")
 
 
 def load_tl(tl_path: Path, start: date, end: date) -> pl.DataFrame:
@@ -118,9 +157,10 @@ def merge(etf: pl.DataFrame, tl: pl.DataFrame, tolerance: str) -> pl.DataFrame:
     missed = aligned["tl_last"].null_count()
     if missed:
         LOGGER.info("Dropped %s ETF ticks with no TL quote within %s", missed, tolerance)
-    return aligned.drop_nulls("tl_last").select(
-        "trade_time", "etf_last", "tl_time", "tl_last", "tl_code"
-    )
+    columns = ["trade_time", "etf_last", "tl_time", "tl_last", "tl_code"]
+    if "etf_last_raw" in aligned.columns:
+        columns.insert(2, "etf_last_raw")
+    return aligned.drop_nulls("tl_last").select(columns)
 
 
 def run(etf_dir: Path, tl_path: Path, output: Path, start: date, end: date, tolerance: str) -> None:

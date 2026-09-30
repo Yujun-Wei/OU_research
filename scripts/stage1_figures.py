@@ -24,7 +24,8 @@ sys.path.insert(0, str(REPO_ROOT))
 from src.book import Z_ENTER, Z_EXIT, arrays, simulate
 from src.kalman import fit_ar1_ols, kalman_filter, minute_bars
 from src.ols_fit import attach_ols, fit_ols, trailing_schedule
-from src.static_hedge import fit_hedge, resample_last
+from src.rolling_hedge import HEDGE_LOOKBACK, fit_rolling_hedge
+from src.static_hedge import TRAIN_FRAC, fit_hedge, resample_last, session_cutoff
 
 MERGED_PATH = REPO_ROOT / "data" / "merged" / "511090_TL_20250701_20251230.parquet"
 FIGURES = REPO_ROOT / "reports" / "figures"
@@ -88,16 +89,14 @@ def _view_limit(values: np.ndarray, cap: float) -> float:
 
 def main() -> None:
     panel = pl.read_parquet(MERGED_PATH)
-    train = panel.filter(pl.col("in_sample"))
-    test = panel.filter(~pl.col("in_sample"))
-    train_end = train["trade_time"].dt.date().max()
-    hedge = fit_hedge(resample_last(panel, "1m"), train_end, "1min")
+    bars = resample_last(panel, "1m")
+    train_end = session_cutoff(bars, TRAIN_FRAC)
+    train = panel.filter(pl.col("trade_time").dt.date() <= train_end)
+    test = panel.filter(pl.col("trade_time").dt.date() > train_end)
+    hedge = fit_hedge(bars, train_end, "1min")
     anchor = fit_ols(train, "x_static")
-    quarter = (
-        panel.filter(pl.col("trade_time").dt.date() <= QUARTER_END)
-        .select("beta_rolling")
-        .unique()
-    )
+    coefs = fit_rolling_hedge(bars, HEDGE_LOOKBACK)
+    quarter = coefs.filter(pl.col("session") <= QUARTER_END)
     print(
         f"Static hedge alpha {hedge.alpha:.6f} beta {hedge.beta:.6f}, "
         f"train through {train_end}, test {test['trade_time'].dt.date().min()} .. {test['trade_time'].dt.date().max()}"
@@ -220,10 +219,28 @@ def main() -> None:
 
     _style()
     FIGURES.mkdir(parents=True, exist_ok=True)
+    _plot_static_spread(panel, train_end)
     _plot_spread_z(times, minute_path, z_trail, z_kal, entry, exit_)
     _plot_position(times, minute_path)
-    print(f"Wrote {FIGURES / 'spread_z.pdf'}")
-    print(f"Wrote {FIGURES / 'position.pdf'}")
+    print(f"Wrote {FIGURES / 'stage1_static_spread.pdf'}")
+    print(f"Wrote {FIGURES / 'stage1_oos_spread_z.pdf'}")
+    print(f"Wrote {FIGURES / 'stage1_oos_positions.pdf'}")
+
+
+def _plot_static_spread(panel: pl.DataFrame, train_end: date) -> None:
+    minute = _minute_last(panel.select("trade_time", "x_static"))
+    times = minute["trade_time"].to_numpy()
+    fit_end = minute.filter(pl.col("trade_time").dt.date() <= train_end)["trade_time"].max()
+    fig, axis = plt.subplots(figsize=(10.4, 3.6), constrained_layout=True)
+    axis.axvspan(times[0], fit_end, color=TRAIL, alpha=0.06, lw=0)
+    axis.plot(times, minute["x_static"].to_numpy(), color=SPREAD, lw=0.45)
+    axis.axhline(0.0, color=BAND, lw=0.5)
+    axis.set_ylabel("Spread")
+    axis.set_title("Static spread")
+    _dates(axis, times)
+    fig.savefig(FIGURES / "stage1_static_spread.pdf")
+    fig.savefig("/tmp/stage1_static_spread.png", dpi=140)
+    plt.close(fig)
 
 
 def _plot_spread_z(
@@ -262,7 +279,7 @@ def _plot_spread_z(
     kalman_lim = _view_limit(np.concatenate([z_kal, np.minimum(entry, 8.0)]), cap=8.0)
     axes[2].set_ylim(-kalman_lim, kalman_lim)
     _dates(axes[2], times)
-    fig.savefig(FIGURES / "spread_z.pdf")
+    fig.savefig(FIGURES / "stage1_oos_spread_z.pdf")
     fig.savefig("/tmp/stage1_spread_z.png", dpi=140)
     plt.close(fig)
 
@@ -283,7 +300,7 @@ def _plot_position(times: np.ndarray, minute_path: pl.DataFrame) -> None:
         axis.set_title(title)
         axis.set_ylim(-(peak + 1), peak + 1)
     _dates(axes[1], times)
-    fig.savefig(FIGURES / "position.pdf")
+    fig.savefig(FIGURES / "stage1_oos_positions.pdf")
     fig.savefig("/tmp/stage1_position.png", dpi=140)
     plt.close(fig)
 

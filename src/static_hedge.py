@@ -126,13 +126,12 @@ def fit_hedge(bars: pl.DataFrame, train_end: date, frequency: str) -> HedgeFit:
     return fit
 
 
-def attach_static_hedge(panel: pl.DataFrame, alpha: float, beta: float, train_end: date) -> pl.DataFrame:
-    """Add `x_static` and the in-sample flag. Replaces them if present."""
+def attach_static_hedge(panel: pl.DataFrame, alpha: float, beta: float) -> pl.DataFrame:
+    """Add `x_static`. Replaces it if present."""
     existing = [name for name in ("spread", "x_static", "in_sample") if name in panel.columns]
     base = panel.drop(existing) if existing else panel
     return base.with_columns(
         (pl.col("etf_last") - beta * pl.col("tl_last") - alpha).alias("x_static"),
-        (pl.col("trade_time").dt.date() <= train_end).alias("in_sample"),
     )
 
 

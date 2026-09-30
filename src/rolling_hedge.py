@@ -49,7 +49,7 @@ def fit_rolling_hedge(bars: pl.DataFrame, lookback: int = HEDGE_LOOKBACK) -> pl.
 
 
 def attach_rolling_hedge(panel: pl.DataFrame, coefs: pl.DataFrame) -> pl.DataFrame:
-    """Add the session's `alpha_rolling`, `beta_rolling`, and `x_rolling`. Replaces them if present."""
+    """Add `x_rolling`. The session coefficients are not kept on the panel."""
     existing = [name for name in ("alpha", "beta", "alpha_rolling", "beta_rolling", "x", "x_rolling") if name in panel.columns]
     base = panel.drop(existing) if existing else panel
     keyed = base.with_columns(pl.col("trade_time").dt.date().alias("session"))
@@ -63,5 +63,5 @@ def attach_rolling_hedge(panel: pl.DataFrame, coefs: pl.DataFrame) -> pl.DataFra
                 pl.col("etf_last") - pl.col("beta_rolling") * pl.col("tl_last") - pl.col("alpha_rolling")
             ).alias("x_rolling")
         )
-        .drop("session")
+        .drop("session", "alpha_rolling", "beta_rolling")
     )
