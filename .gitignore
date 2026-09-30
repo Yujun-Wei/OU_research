@@ -1,0 +1,10 @@
+.env
+.cursor/
+data/
+scratch/
+__pycache__/
+*.pyc
+*.log
+*.synctex.gz
+*.html
+*.ttf
